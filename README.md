@@ -10,13 +10,14 @@ This tool imports blog posts from WordPress export files in to Telerik Sitefinit
 
 * Tags and Categories can be automatically created in Sitefinity and assigned to the posts
 * Images found in post content are downloaded from their remote location, stored inside Sitefinity libraries, and included in the new blog post using [sfref]
-* Import post comments
-* Import post meta data (description, keywords)
-* Import post thumbnail images
+* Import post comments.
+* Import post thumbnail images.
+* Import post full sized images (linked through href).
 
 ##Dependencies
 
-* CSQuery
+* CSQuery - Included in repository.
+* HtmlAgilityPack - Should be included in Sitefinity. If not, you can get it here.
 
 ##Please note
 
@@ -28,8 +29,9 @@ Suggestions and pull requests are totally welcome!
 
 ###What to do first
 
-All authors must already have accounts created in Sitefinity
-All custom blog post fields (meta data, related content, etc.) must be created prior to the import
+All authors must already have accounts created in Sitefinity in order to properly map the posts to them. If you don't want this, create a single user and specify their e-mail address in the `_defaultAuthorEmail` field to have all blog posts mapped to them.
+
+This version of the script does not parse any meta data, related content, etc. If you want to include that, you will need to create those resources in advance, uncomment the code in the script, (near line 166) and update it accordingly.
 
 ###Copying the source files
 
