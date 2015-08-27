@@ -2,6 +2,14 @@
 
 This is not a standalone project. It must be placed inside of a Sitefinity 7.0 or later project and run from there.
 
+##What's New
+* Added CsQuery library (no need to download).
+* Added result label to display when processing is finished.
+* Added default e-mail to lookup default user with for blog imports.
+* Removed tag / metadata processing (causes errors)
+* Fixed image import process by handling images that link to larger versions of the image in WordPress.
+* Updated summary field to use stripped down content from body if no summary is found (using HtmlAgilityPack).
+
 ##What it does
 
 This tool imports blog posts from WordPress export files in to Telerik Sitefinity blogs.
