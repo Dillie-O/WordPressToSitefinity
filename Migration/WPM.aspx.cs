@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using Telerik.Sitefinity.Blogs.Model;
 using Telerik.Sitefinity.Workflow;
 using CsQuery;
+using HtmlAgilityPack;
 using Telerik.Sitefinity.GenericContent.Model;
 using Telerik.Sitefinity.Modules.Libraries;
 using Telerik.Sitefinity.Modules.Libraries.Configuration;
@@ -41,11 +42,14 @@ namespace SitefinityWebApp.Migrate
 
         private string _fromFormat = "yyyy/MM/dd HH:MM:ss";
 
+        private string _defaultAuthorEmail = "user@example.com";
+        private User _defaultAuthor;
+
         private XNamespace excerpt = "http://wordpress.org/export/1.2/excerpt/";
         private XNamespace content = "http://purl.org/rss/1.0/modules/content/";
         private XNamespace wfw = "http://wellformedweb.org/CommentAPI/";
         private XNamespace dc = "http://purl.org/dc/elements/1.1/";
-        private XNamespace wp = "http://wordpress.org/export/1.2/";
+        private XNamespace wp = "http://wordpress.org/export/1.2/";        
         
         // not hooked to UI :/
         // this allows the import to split authors into different blogs
@@ -96,6 +100,10 @@ namespace SitefinityWebApp.Migrate
 
             _authors = GetPostAuthorsFromXML(xml);
             _posts = GetPostsFromXML(xml);
+            _defaultAuthor = SFUserManager.GetUserByEmail(_defaultAuthorEmail);
+
+            var importCount = 0;
+            var missingCount = 0;
 
             foreach (var post in _posts)
             {
@@ -117,11 +125,15 @@ namespace SitefinityWebApp.Migrate
                 if (BlogExists(_targetBlogId))
                 {
                     ImportPost(_targetBlogId, post);
+                    importCount++;
                 }
                 else
                 {
                     _importLog += "<br>Parent blog '" + parentBlogTitle + "' not found for post '" + post.Title + "'.<br>";
+                    missingCount++;
                 }
+
+                lblResult.Text = String.Format("Import Complete. Posts Imported: {0}. Posts Missing: {1}", importCount, missingCount);
             }
         }
 
@@ -163,13 +175,14 @@ namespace SitefinityWebApp.Migrate
                 post.AllowComments = (p.Element(wp + "comment_status").Value == "open") ? true : false;
                 post.Tags = p.Elements("category").Where(b => (string)b.Attribute("domain") == "post_tag").Select(c => c.Value).ToList();
                 post.Categories = p.Elements("category").Where(b => (string)b.Attribute("domain") == "category").Select(c => c.Value).ToList();
-                post.Meta = p.Elements(wp + "postmeta").Count() > 0 ?
-                    p.Elements(wp + "postmeta")
-                    .Where(x => x.Element(wp + "meta_key").Value != "enclosure")
-                    .ToDictionary(
-                        m => m.Element(wp + "meta_key").Value,
-                        m => m.Element(wp + "meta_value").Value
-                    ) : null;
+                //post.Meta = p.Elements(wp + "postmeta").Count() > 0 ?
+                //    p.Elements(wp + "postmeta")
+                //    .Where(x => x.Element(wp + "meta_key").Value != "enclosure")
+                //    .ToDictionary(
+                //        m => m.Element(wp + "meta_key").Value,
+                //        m => m.Element(wp + "meta_value").Value
+                //    ) : null;
+                post.Meta = null;
                 post.Comments = (p.Elements(wp + "comment").Count() > 0 ? p.Elements(wp + "comment")
                     .Select(c => new GenericPostComment
                     {
@@ -215,20 +228,38 @@ namespace SitefinityWebApp.Migrate
 
             blogPost.Content = content;
 
-            blogPost.Summary = post.Summary;
-            blogPost.AllowComments = post.AllowComments;
+            // If there is no summary, grab part of the post and use that.
+            if (string.IsNullOrEmpty(post.Summary))
+            {
+                var strippedContent = StripHtml(content);
+                if (strippedContent.Length > 200)
+                {
+                    blogPost.Summary = strippedContent.Substring(0, 200) + "...";    
+                }
+                else
+                {
+                    blogPost.Summary = strippedContent;
+                }                
+            }            
+            
+            // Default to disallow comments
+            blogPost.AllowComments = false;
             blogPost.UrlName = post.PostName ?? Regex.Replace(post.Title.ToLower(), @"[^\w\-\!\$\'\(\)\=\@\d_]+", "-");
             blogPost.Owner = Guid.Empty;
 
             PostAuthor author = _authors.Where(a => a.Username == post.Creator).FirstOrDefault();
 
             if (author != null)
-            {
+            {                
                 User user = SFUserManager.GetUserByEmail(author.Email);
 
                 if (user != null)
                 {
                     blogPost.Owner = user.Id;
+                }
+                else
+                {
+                    blogPost.Owner = _defaultAuthor.Id;
                 }
             }
 
@@ -341,6 +372,16 @@ namespace SitefinityWebApp.Migrate
             }
 
             var dbg = _importLog;
+        }
+
+        private static string StripHtml(string content)
+        {
+            var doc = new HtmlDocument();
+            doc.LoadHtml(content);
+            
+            var results = doc.DocumentNode.ChildNodes.Aggregate("", (current, node) => current + node.InnerText);
+
+            return results;
         }
 
         #region Comment Stuff
@@ -539,6 +580,25 @@ namespace SitefinityWebApp.Migrate
                     string imgFile = Path.GetFileName(imageSrc);
 
                     ImportImage(imageSrc, postTitle, blogTitle);
+                });
+
+                // Repeat this process for any links that point to image
+                // resources.
+                var imageLinks = document.Select("a");
+
+                imageLinks.Each((element) =>
+                {
+                    CQ cqElement = new CQ(element);
+
+                    string imageSrc = cqElement.Attr("href");
+                    
+                    if (imageSrc.EndsWith(".jpg") || 
+                        imageSrc.EndsWith(".png") || 
+                        imageSrc.EndsWith(".gif") || 
+                        imageSrc.EndsWith(".tiff"))
+                    {
+                        ImportImage(imageSrc, postTitle, blogTitle);   
+                    }                    
                 });
             }
         }
@@ -796,6 +856,12 @@ namespace SitefinityWebApp.Migrate
     #region Helpers
     internal static class Helpers
     {
+        public enum LinkedImageTagType
+        {
+            Image,
+            Anchor
+        }
+        
         public static String PregReplace(this String input, string pattern, string replacement)
         {
             input = Regex.Replace(input, pattern, replacement);
@@ -815,18 +881,51 @@ namespace SitefinityWebApp.Migrate
                 {             
                     CQ cqElement = new CQ(element);
 
-                    cqElement.BuildSitefinityReference();
+                    cqElement.BuildSitefinityReference(LinkedImageTagType.Image);
+                });
+
+                // Repeat this process for any links that point to image
+                // resources.
+                var imageLinks = document.Select("a");
+
+                imageLinks.Each((element) =>
+                {
+                    CQ cqElement = new CQ(element);
+
+                    string imageSrc = cqElement.Attr("href");
+
+                    if (imageSrc.EndsWith(".jpg") ||
+                        imageSrc.EndsWith(".png") ||
+                        imageSrc.EndsWith(".gif") ||
+                        imageSrc.EndsWith(".tiff"))
+                    {
+                        cqElement.BuildSitefinityReference(LinkedImageTagType.Anchor);
+                    }
                 });
             }
 
             return document.Render();
         }
 
-        public static bool BuildSitefinityReference(this CQ htmlElement)
+        public static bool BuildSitefinityReference(this CQ htmlElement, LinkedImageTagType tagType)
         {
             bool result = false;
 
-            string imgFile = Path.GetFileName(htmlElement.Attr("src"));
+            string attributeSource = "";
+
+            switch (tagType)
+            {
+                case LinkedImageTagType.Image:
+                    attributeSource = "src";
+                    break;
+
+                case LinkedImageTagType.Anchor:
+                    attributeSource = "href";
+                    break;
+            }
+
+
+            string imgFile = Path.GetFileName(htmlElement.Attr(attributeSource));
 
             var sfImg = App.WorkWith().Images().Where(i => i.Status == ContentLifecycleStatus.Master).Get().ToList().Where(i => Path.GetFileName(i.FilePath) == imgFile.ToLower()).FirstOrDefault();
 
@@ -845,13 +944,13 @@ namespace SitefinityWebApp.Migrate
 
                 string relativeUrl = new Uri(sfImg.MediaUrl).AbsolutePath;
 
-                htmlElement.Attr("src", relativeUrl);
+                htmlElement.Attr(attributeSource, relativeUrl);
 
                 result = true;
             }
 
             return result;
-        }
+        }        
 
         public static bool IsLocalPath(string p)
         {

@@ -1,4 +1,4 @@
-<%@ Page Language="C#" AutoEventWireup="True" CodeFile="WPM.aspx.cs" Inherits="SitefinityWebApp.Migrate.WPM" %>
+<%@ Page Language="C#" Debug="true" AutoEventWireup="True" CodeFile="WPM.aspx.cs" Inherits="SitefinityWebApp.Migrate.WPM" %>
 
 <!DOCTYPE html>
 <html>
@@ -70,6 +70,10 @@
             </div>
 
             <asp:Button ID="Submit" runat="server" Text="Run" OnClick="Submit_Click" />
+            
+            <br/><br/>
+
+            <asp:Label ID="lblResult" runat="server" />
         </div>
     </form>
 </body>
